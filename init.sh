@@ -54,7 +54,6 @@ get_env_value() {
 printf 'Preparando el bot de Telegram...\n'
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip install --upgrade --pre yt-dlp
 
 token="$(get_env_value TELEGRAM_BOT_TOKEN)"
 if [[ -z "$token" || "$token" == 'pega_aqui_el_token_de_BotFather' ]]; then
@@ -125,6 +124,11 @@ fi
 stopping=0
 bot_pid=''
 
+update_yt_dlp() {
+    printf 'Actualizando yt-dlp antes de iniciar el bot...\n'
+    .venv/bin/python -m pip install --upgrade --pre yt-dlp
+}
+
 stop_bot() {
     stopping=1
     if [[ -n "$bot_pid" ]]; then
@@ -135,6 +139,7 @@ stop_bot() {
 trap stop_bot INT TERM
 printf 'Iniciando el bot. Pulsa Ctrl+C para detenerlo.\n'
 while [[ "$stopping" -eq 0 ]]; do
+    update_yt_dlp
     .venv/bin/python bot.py &
     bot_pid=$!
     if wait "$bot_pid"; then

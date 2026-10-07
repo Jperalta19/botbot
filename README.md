@@ -18,7 +18,7 @@ No se eluden restricciones de acceso. Usa el bot solo con contenido que tengas d
 
 ## Otros sitios
 
-Se habilitan TikTok, YouTube, Vimeo, Facebook, X/Twitter, Reddit, Dailymotion, SoundCloud, Pinterest y Threads mediante `yt-dlp`. La extracción depende de los cambios y límites de cada plataforma y, para estos sitios, se procesa un video por enlace. Solo se aceptan dominios incluidos en `ALLOWED_DOMAINS`.
+Se habilitan TikTok, YouTube, Vimeo, Facebook, X/Twitter, Reddit, Dailymotion, SoundCloud, Pinterest, Threads y videos públicos de Snapchat Spotlight mediante `yt-dlp`. La extracción depende de los cambios y límites de cada plataforma y, para estos sitios, se procesa un video por enlace. Solo se aceptan dominios incluidos en `ALLOWED_DOMAINS`.
 
 ## Instalación
 
@@ -28,7 +28,7 @@ Requiere Python 3.10 o posterior y un token de bot creado con [@BotFather](https
 ./init.sh
 ```
 
-El instalador crea el entorno virtual, instala dependencias, actualiza `yt-dlp` al canal nightly recomendado para corregir cambios de extractores, solicita el token sin mostrarlo, conserva las opciones existentes de `.env` y arranca el bot bajo un supervisor. Ante una caída inesperada, lo reinicia a los 5 segundos. Los errores de conexión con Telegram también se reintentan cada 5 segundos. `Ctrl+C` detiene el bot de forma normal.
+El instalador crea el entorno virtual e instala dependencias, solicita el token sin mostrarlo, conserva las opciones existentes de `.env` y arranca el bot bajo un supervisor. Antes de cada inicio, incluido cada reinicio automático, actualiza `yt-dlp` al canal nightly recomendado para corregir cambios de extractores. Ante una caída inesperada, reinicia el bot a los 5 segundos. Los errores de conexión con Telegram también se reintentan cada 5 segundos. `Ctrl+C` detiene el bot de forma normal.
 
 Para configurar sin iniciarlo, usa `./init.sh --setup-only`; luego inicia con `./init.sh` para conservar el supervisor. Si ejecutas directamente:
 
@@ -40,7 +40,7 @@ el bot mantiene los reintentos de red, pero no reinicia el proceso si este termi
 
 El inicio de sesión opcional de Instagram se realiza en el terminal de Instaloader; la contraseña no se guarda en `.env`.
 
-Si un sitio deja de funcionar, actualiza y reinicia el bot con `./init.sh --setup-only` y `.venv/bin/python bot.py`.
+Si un sitio deja de funcionar, ejecuta `./init.sh`; actualizará `yt-dlp` antes de iniciar el bot. Si lo inicias directamente con `.venv/bin/python bot.py`, actualiza primero con `.venv/bin/python -m pip install --upgrade --pre yt-dlp`.
 
 Para actualizar el código desde GitHub, ejecuta `./up.sh usuario/repositorio`. La primera vez también puedes ejecutar `./up.sh` y escribir el repositorio cuando lo solicite. El script respalda los archivos que reemplaza, conserva `.env` y `.venv`, e instala las dependencias nuevas. Luego reinicia con `./init.sh`.
 

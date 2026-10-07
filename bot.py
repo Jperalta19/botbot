@@ -1,13 +1,16 @@
 import asyncio
 from contextlib import ExitStack
 import itertools
+import json
 import logging
 import os
 import re
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 import instaloader
 import yt_dlp
@@ -49,6 +52,7 @@ DEFAULT_DOMAINS = {
     "pinterest.com",
     "pin.it",
     "threads.net",
+    "snapchat.com",
 }
 ALLOWED_DOMAINS = {
     domain.strip().lower()
@@ -70,6 +74,10 @@ class InstagramSessionRequired(ValueError):
 
 
 class TooManyMedia(ValueError):
+    pass
+
+
+class CobaltError(ValueError):
     pass
 
 
@@ -131,7 +139,7 @@ def download_video(url: str, directory: str, state: dict[str, object]) -> Path:
 
     options = {
         "format": "best[ext=mp4][height<=1080]/best[height<=1080]/best",
-        "outtmpl": str(Path(directory) / "%(title).80B-%(id)s.%(ext)s"),
+        "outtmpl": str(Path(directory) / "%(title).80B-%(id).40B.%(ext)s"),
         "noplaylist": True,
         "max_filesize": MAX_VIDEO_BYTES,
         "socket_timeout": 30,
@@ -153,6 +161,63 @@ def download_video(url: str, directory: str, state: dict[str, object]) -> Path:
     media_path = media_files[0]
     if media_path.stat().st_size > MAX_VIDEO_BYTES:
         raise VideoTooLarge(f"El video supera el límite de {MAX_VIDEO_MB} MB.")
+    return media_path
+
+
+def download_snapchat(url: str, directory: str, state: dict[str, object]) -> Path:
+    api_url = os.getenv("COBALT_API_URL", "").strip()
+    api_parts = urlsplit(api_url)
+    if api_parts.scheme != "https" or not api_parts.hostname:
+        raise CobaltError("Configura COBALT_API_URL con una instancia Cobalt autorizada para descargar Snapchat.")
+
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    api_key = os.getenv("COBALT_API_KEY", "").strip()
+    if api_key:
+        headers["Authorization"] = f"Api-Key {api_key}"
+    request = Request(
+        f"{api_url.rstrip('/')}/",
+        data=json.dumps({"url": url, "videoQuality": "1080", "filenameStyle": "basic"}).encode(),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read())
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+        logger.warning("Falló la solicitud a Cobalt: %s", error)
+        raise CobaltError("No pude comunicarme con la instancia Cobalt configurada.") from error
+
+    if result.get("status") == "error":
+        raise CobaltError("La instancia Cobalt rechazó el enlace de Snapchat.")
+    if result.get("status") not in {"tunnel", "redirect"} or not result.get("url"):
+        raise CobaltError("La instancia Cobalt devolvió una respuesta no compatible para este enlace.")
+
+    download_url = result["url"]
+    if urlsplit(download_url).scheme != "https":
+        raise CobaltError("Cobalt devolvió un enlace de descarga no seguro.")
+    filename = Path(str(result.get("filename") or "snapchat-video.mp4")).name
+    if not filename or filename in {".", ".."}:
+        filename = "snapchat-video.mp4"
+    media_path = Path(directory) / filename
+
+    try:
+        with urlopen(download_url, timeout=30) as response, media_path.open("wb") as media_file:
+            total = int(response.headers.get("Content-Length") or 0)
+            if total > MAX_VIDEO_BYTES:
+                raise VideoTooLarge(f"El video supera el límite de {MAX_VIDEO_MB} MB.")
+            downloaded = 0
+            while chunk := response.read(64 * 1024):
+                downloaded += len(chunk)
+                if downloaded > MAX_VIDEO_BYTES:
+                    raise VideoTooLarge(f"El video supera el límite de {MAX_VIDEO_MB} MB.")
+                media_file.write(chunk)
+                state["downloaded"] = downloaded
+                state["percent"] = downloaded * 100 / total if total else None
+    except (HTTPError, URLError, TimeoutError) as error:
+        logger.warning("Falló la descarga del archivo de Cobalt: %s", error)
+        raise CobaltError("No pude descargar el archivo devuelto por Cobalt.") from error
+
     return media_path
 
 
@@ -311,7 +376,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "Puedo descargar y enviarte:\n"
         "• Instagram: fotos, videos de publicaciones, carruseles mixtos, Reels e IGTV.\n"
-        "• TikTok, YouTube, Vimeo, Facebook, X/Twitter, Reddit, Dailymotion, SoundCloud, "
+        "• Snapchat Spotlight con yt-dlp y Cobalt como alternativa; TikTok, YouTube, Vimeo, Facebook, X/Twitter, Reddit, Dailymotion, SoundCloud, "
         "Pinterest y Threads, según disponibilidad de cada sitio.\n\n"
         "Pega un enlace HTTPS público. Verás el progreso mientras descargo y envío los archivos. "
         "Los carruseles de Instagram se entregan como álbumes.\n\n"
@@ -375,7 +440,18 @@ async def process_link(
     try:
         with tempfile.TemporaryDirectory(prefix="telegram-media-") as directory:
             instagram_url = classify_instagram_url(url)
-            if instagram_url:
+            hostname = (urlsplit(url).hostname or "").lower().rstrip(".")
+            is_snapchat = hostname == "snapchat.com" or hostname.endswith(".snapchat.com")
+            if is_snapchat:
+                try:
+                    media_path = await asyncio.to_thread(download_video, url, directory, state)
+                except VideoTooLarge:
+                    raise
+                except Exception:
+                    logger.warning("yt-dlp no pudo descargar Snapchat; pruebo con Cobalt", exc_info=True)
+                    media_path = await asyncio.to_thread(download_snapchat, url, directory, state)
+                media_paths = [media_path]
+            elif instagram_url:
                 try:
                     media_paths = await asyncio.to_thread(
                         download_instagram,
@@ -406,6 +482,9 @@ async def process_link(
         state["done"] = True
         await status.edit_text(f"Listo: {len(media_paths)} archivo(s) enviado(s).")
     except (VideoTooLarge, TooManyMedia, InstagramSessionRequired) as error:
+        state["done"] = True
+        await status.edit_text(str(error))
+    except CobaltError as error:
         state["done"] = True
         await status.edit_text(str(error))
     except Exception:
