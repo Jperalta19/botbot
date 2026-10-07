@@ -487,7 +487,7 @@ async def process_link(
     except CobaltError as error:
         state["done"] = True
         await status.edit_text(str(error))
-    except Exception:
+    except Exception as error:
         logger.exception("Falló la descarga o el envío")
         state["done"] = True
         hostname = (urlsplit(url).hostname or "").lower().rstrip(".")
@@ -496,6 +496,14 @@ async def process_link(
                 "TikTok rechazó o cambió la respuesta. Reinicia el bot para aplicar la versión "
                 "actualizada de yt-dlp y vuelve a probar más tarde. Si sigue fallando, puede ser "
                 "una restricción temporal de TikTok."
+            )
+        elif (hostname == "instagram.com" or hostname.endswith(".instagram.com")) and (
+            "This content isn't available to everyone" in str(error)
+        ):
+            await status.edit_text(
+                "Instagram indica que este Reel no está disponible para todas las audiencias. "
+                "Si tu cuenta tiene acceso, configura una sesión válida de Instagram para el bot. "
+                "No puedo descargar contenido al que esa cuenta no tenga acceso."
             )
         else:
             await status.edit_text(
