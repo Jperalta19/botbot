@@ -393,7 +393,7 @@ async def set_bot_commands(application: Application) -> None:
     commands = [
         BotCommand("start", "Iniciar el bot"),
         BotCommand("inf", "Funciones y descripción"),
-        BotCommand("highlight", "Descargar un destacado"),
+        BotCommand("story", "Descargar un destacado e historias"),
     ]
     await application.bot.set_my_commands(commands)
 
